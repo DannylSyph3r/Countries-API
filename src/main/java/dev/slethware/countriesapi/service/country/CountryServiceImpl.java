@@ -6,8 +6,10 @@ import dev.slethware.countriesapi.models.dto.CurrencyDto;
 import dev.slethware.countriesapi.models.dto.ExchangeRateApiResponse;
 import dev.slethware.countriesapi.models.entity.Country;
 import dev.slethware.countriesapi.models.response.CountryResponse;
+import dev.slethware.countriesapi.models.response.StatusResponse;
 import dev.slethware.countriesapi.repository.CountryRepository;
 import dev.slethware.countriesapi.service.http.HttpClientService;
+import dev.slethware.countriesapi.service.image.ImageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,7 @@ public class CountryServiceImpl implements CountryService {
 
     private final CountryRepository countryRepository;
     private final HttpClientService httpClientService;
+    private final ImageService imageService;
     private final Random random = new Random();
 
     @Override
@@ -48,9 +51,9 @@ public class CountryServiceImpl implements CountryService {
         log.info("Fetching country by name: {}", name);
 
         Country country = countryRepository.findByNameIgnoreCase(name).orElseThrow(() -> {
-                    log.error("Country not found: {}", name);
-                    return new ResourceNotFoundException("Country not found: " + name);
-                });
+            log.error("Country not found: {}", name);
+            return new ResourceNotFoundException("Country not found: " + name);
+        });
 
         log.info("Successfully found country: {}", country.getName());
 
@@ -78,7 +81,6 @@ public class CountryServiceImpl implements CountryService {
                 try {
                     Country country = processCountry(countryResponse, exchangeRates);
 
-                    // Check if country exists (case-insensitive)
                     Optional<Country> existingCountry = countryRepository.findByNameIgnoreCase(country.getName());
 
                     if (existingCountry.isPresent()) {
@@ -96,11 +98,26 @@ public class CountryServiceImpl implements CountryService {
                     }
                 } catch (Exception e) {
                     log.error("Error processing country: {}", countryResponse.getName(), e);
-                    // Continue processing other countries
                 }
             }
 
             log.info("Refresh completed. Inserted: {}, Updated: {}", insertedCount, updatedCount);
+
+            // Generate summary image after refresh
+            try {
+                long totalCountries = countryRepository.count();
+                List<Country> topCountries = countryRepository.findTop5ByEstimatedGdpDesc()
+                        .stream()
+                        .limit(5)
+                        .collect(Collectors.toList());
+
+                LocalDateTime lastRefreshedAt = countryRepository.findMaxLastRefreshedAt();
+
+                imageService.generateSummaryImage(topCountries, totalCountries, lastRefreshedAt);
+                log.info("Summary image generated successfully");
+            } catch (Exception e) {
+                log.error("Error generating summary image", e);
+            }
 
             return String.format("Successfully refreshed countries. Inserted: %d, Updated: %d",
                     insertedCount, updatedCount);
@@ -109,6 +126,33 @@ public class CountryServiceImpl implements CountryService {
             log.error("Error during country refresh", e);
             throw e;
         }
+    }
+
+    @Override
+    public StatusResponse getStatus() {
+        log.info("Fetching system status");
+
+        long totalCountries = countryRepository.count();
+        LocalDateTime lastRefreshedAt = countryRepository.findMaxLastRefreshedAt();
+
+        log.info("Total countries: {}, Last refreshed: {}", totalCountries, lastRefreshedAt);
+
+        return new StatusResponse(totalCountries, lastRefreshedAt);
+    }
+
+    @Override
+    @Transactional
+    public void deleteCountry(String name) {
+        log.info("Deleting country: {}", name);
+
+        Country country = countryRepository.findByNameIgnoreCase(name)
+                .orElseThrow(() -> {
+                    log.error("Country not found for deletion: {}", name);
+                    return new ResourceNotFoundException("Country not found: " + name);
+                });
+
+        countryRepository.delete(country);
+        log.info("Successfully deleted country: {}", name);
     }
 
     private Country processCountry(CountryApiResponse response, Map<String, Double> exchangeRates) {
