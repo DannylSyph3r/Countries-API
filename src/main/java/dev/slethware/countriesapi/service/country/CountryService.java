@@ -1,11 +1,11 @@
 package dev.slethware.countriesapi.service.country;
 
-import dev.slethware.countriesapi.models.entity.Country;
-import dev.slethware.countriesapi.models.response.ApiResponse;
+import dev.slethware.countriesapi.models.response.CountryResponse;
 
 import java.util.List;
 
 public interface CountryService {
-    ApiResponse<List<Country>> getAllCountries(String region, String currency, String sort);
-    ApiResponse<Country> getCountryByName(String name);
+    List<CountryResponse> getAllCountries(String region, String currency, String sort);
+    CountryResponse getCountryByName(String name);
+    String refreshCountries();
 }
